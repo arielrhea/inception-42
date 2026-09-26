@@ -1,0 +1,33 @@
+services:
+  mariadb:
+    build:
+      context: ./requirements/mariadb
+      dockerfile: Dockerfile
+    image: inception-mariadb:dev
+    container_name: mariadb
+    restart: on-failure
+    env_file:
+      - .env
+    secrets:
+      - db_root_password
+      - db_password
+    networks:
+      - inception
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+secrets:
+  db_root_password:
+    file: ../secrets/db_root_password.txt
+  db_password:
+    file: ../secrets/db_password.txt
+
+volumes:
+  mariadb_data:
+    name: mariadb_data
+    driver: local
+
+networks:
+  inception:
+    name: inception
+    driver: bridge

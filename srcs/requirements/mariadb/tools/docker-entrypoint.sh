@@ -10,6 +10,9 @@ INIT_MARKER="$DATA_DIR/.inception_initialized"
 ROOT_PASSWORD_FILE="/run/secrets/db_root_password"
 USER_PASSWORD_FILE="/run/secrets/db_password"
 
+unset MYSQL_HOST
+unset MYSQL_TCP_PORT
+
 mkdir -p "$DATA_DIR" "$RUN_DIR"
 chown mysql:mysql "$DATA_DIR" "$RUN_DIR"
 
@@ -58,6 +61,8 @@ if [ ! -f "$INIT_MARKER" ]; then
     mariadb-install-db \
         --user=mysql \
         --datadir="$DATA_DIR" \
+        --auth-root-authentication-method=socket \
+        --auth-root-socket-user=mysql \
         --skip-test-db
 
     mariadbd \
@@ -67,10 +72,22 @@ if [ ! -f "$INIT_MARKER" ]; then
         --socket="$SOCKET" &
 
     TEMP_PID="$!"
+
+    stop_temporary_server()
+    {
+        if kill -0 "$TEMP_PID" 2>/dev/null; then
+            kill "$TEMP_PID" 2>/dev/null || true
+            wait "$TEMP_PID" 2>/dev/null || true
+        fi
+    }
+
+    trap stop_temporary_server 0 HUP INT TERM
+
     attempt=0
 
     until mariadb-admin \
         --protocol=socket \
+        --host=localhost \
         --socket="$SOCKET" \
         --user=root \
         ping --silent >/dev/null 2>&1
@@ -79,8 +96,6 @@ if [ ! -f "$INIT_MARKER" ]; then
 
         if [ "$attempt" -ge 30 ]; then
             echo "Error: temporary MariaDB server did not become ready." >&2
-            kill "$TEMP_PID" 2>/dev/null || true
-            wait "$TEMP_PID" 2>/dev/null || true
             exit 1
         fi
 
@@ -89,13 +104,19 @@ if [ ! -f "$INIT_MARKER" ]; then
 
     mariadb \
         --protocol=socket \
+        --host=localhost \
         --socket="$SOCKET" \
         --user=root <<EOF
 CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\`;
 CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
 ALTER USER '${MYSQL_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'%';
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_ROOT_PASSWORD}';
+ALTER USER 'root'@'localhost'
+    IDENTIFIED VIA unix_socket
+    OR mysql_native_password USING PASSWORD('${DB_ROOT_PASSWORD}');
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost' WITH GRANT OPTION;
+ALTER USER 'mysql'@'localhost' IDENTIFIED VIA unix_socket;
+GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'localhost' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SHUTDOWN;
 EOF

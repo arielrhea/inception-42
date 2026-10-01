@@ -3,7 +3,7 @@ services:
     build:
       context: ./requirements/mariadb
       dockerfile: Dockerfile
-    image: inception-mariadb:dev
+    image: mariadb:inception
     container_name: mariadb
     restart: on-failure
     env_file:
@@ -20,7 +20,7 @@ services:
     build:
       context: ./requirements/wordpress
       dockerfile: Dockerfile
-    image: inception-wordpress:dev
+    image: wordpress:inception
     container_name: wordpress
     restart: on-failure
     depends_on:
@@ -35,6 +35,24 @@ services:
       - inception
     volumes:
       - wordpress_data:/var/www/html
+
+  nginx:
+    build:
+      context: ./requirements/nginx
+      dockerfile: Dockerfile
+    image: nginx:inception
+    container_name: nginx
+    restart: on-failure
+    depends_on:
+      - wordpress
+    env_file:
+      - .env
+    ports:
+      - "443:443"
+    networks:
+      - inception
+    volumes:
+      - wordpress_data:/var/www/html:ro
 
 secrets:
   db_root_password:
